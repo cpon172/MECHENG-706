@@ -353,68 +353,6 @@ void GYRO_reading()
 
 //============================================================================================
 
-//Serial command pasing
-void read_serial_command()
-{
-  if (SerialCom->available()) {
-    char val = SerialCom->read();
-    SerialCom->print("Speed:");
-    SerialCom->print(speed_val);
-    SerialCom->print(" ms ");
-
-    //Perform an action depending on the command
-    switch (val) {
-      case 'w'://Move Forward
-      case 'W':
-        forward ();
-        SerialCom->println("Forward");
-
-        break;
-      case 's'://Move Backwards
-      case 'S':
-        reverse ();
-        SerialCom->println("Backwards");
-        break;
-      case 'q'://Turn Left
-      case 'Q':
-        strafe_left();
-        SerialCom->println("Strafe Left");
-        break;
-      case 'e'://Turn Right
-      case 'E':
-        strafe_right();
-        SerialCom->println("Strafe Right");
-        break;
-      case 'a'://Turn Right
-      case 'A':
-        ccw();
-        SerialCom->println("ccw");
-        break;
-      case 'd'://Turn Right
-      case 'D':
-        cw();
-        SerialCom->println("cw");
-        break;
-      case '-'://Turn Right
-      case '_':
-        speed_change = -100;
-        SerialCom->println("-100");
-        break;
-      case '=':
-      case '+':
-        speed_change = 100;
-        SerialCom->println("+");
-        break;
-      default:
-        stop();
-        SerialCom->println("stop");
-        break;
-    }
-  }
-}
-
-//============================================================================================
-
 //----------------------Motor moments------------------------
 //The Vex Motor Controller 29 use Servo Control signals to determine speed and direction, with 0 degrees meaning neutral https://en.wikipedia.org/wiki/Servo_control
 
