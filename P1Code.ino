@@ -1,17 +1,23 @@
+//Main code that contains all the intial variables aswell as being the location where other file functions are called.
 
 #include <Servo.h>  //Need for Servo pulse output
+#include <SoftwareSerial.h>
+#include "BasicLinearAlgebra.h"
+using namespace BLA;
+
+uint16_t timeStamp;
+
+float dist;
+
 //#define NO_READ_GYRO  //Uncomment of GYRO is not attached.
 //#define NO_HC-SR04 //Uncomment of HC-SR04 ultrasonic ranging sensor is not attached.
 //#define NO_BATTERY_V_OK //Uncomment of BATTERY_V_OK if you do not care about battery damage.
 
-//State machine states
-enum STATE {
-  INITIALISING,
-  RUNNING,
-  STOPPED
-};
+//======================================================================================
+//SHIELD PINOUTS
 
-//Refer to Shield Pinouts.jpg for pin locations
+#define BLUETOOTH_RX 10
+#define BLUETOOTH_TX 11 // Serial Data output pin
 
 //Default motor control pins
 const byte left_front = 46;
@@ -19,18 +25,24 @@ const byte left_rear = 47;
 const byte right_rear = 50;
 const byte right_front = 51;
 
-//IR Sensor Pins
-int leftSensorL = A4;
-int rightSensorL = A5;
-int leftSensorS = A6;
-int rightSensorS = A7;
-
 //Default ultrasonic ranging sensor pins, these pins are defined my the Shield
 const int TRIG_PIN = 48;
 const int ECHO_PIN = 49;
 
-// Anything over 400 cm (23200 us pulse) is "out of range". Hit:If you decrease to this the ranging sensor but the timeout is short, you may not need to read up to 4meters.
-const unsigned int MAX_DIST = 23200;
+//IR Sensor Pins
+int irLeftL = A13;
+int irRightL = A14;
+int irLeftS = A12;
+int irRightS = A15;
+
+//IR SENSOR VALUES
+float irLeftLVal = 0;
+float irLeftSVal = 0;
+float irRightLVal = 0;
+float irRightSVal = 0;
+
+//Gyro pin
+int gyroPin = A3;
 
 Servo left_font_motor;  // create servo object to control Vex Motor Controller 29
 Servo left_rear_motor;  // create servo object to control Vex Motor Controller 29
@@ -38,22 +50,97 @@ Servo right_rear_motor;  // create servo object to control Vex Motor Controller 
 Servo right_font_motor;  // create servo object to control Vex Motor Controller 29
 Servo turret_motor;
 
-int speed_val = 100;
+//======================================================================================
+//VARIABLES
+
+int isRunning = 1;
+
+//Time
+uint16_t t1;
+double elapsedTime;
+
+#define STARTUP_DELAY 10 // Seconds
+#define LOOP_DELAY 10 // miliseconds
+#define SAMPLE_DELAY 10 // miliseconds
+
+// USB Serial Port
+#define OUTPUTMONITOR 0
+#define OUTPUTPLOTTER 0
+
+// Bluetooth Serial Port
+#define OUTPUTBLUETOOTHMONITOR 1
+SoftwareSerial BluetoothSerial(BLUETOOTH_RX, BLUETOOTH_TX);
+
+//State machine states
+enum STATE { INITIALISING, RUNNING, STOPPED };
+
+int speed_val = 300; //-500 to 500
 int speed_change;
+
+// Anything over 400 cm (23200 us pulse) is "out of range". Hit:If you decrease to this the ranging sensor but the timeout is short, you may not need to read up to 4meters.
+const unsigned int MAX_DIST = 23200;
+
+//(in order): sonar, irLeftL, irLeftS, irRightL, irRightS
+float Mut_prevlist[5] = {0, 0, 0, 0, 0}; //Initial value/mean of the 5 sensors
+float Sigmat_prevlist[5] = {999, 999, 999, 999, 999}; //Initial Covariance of the 5 sensors
+float RList[5] = {1, 1, 1, 1, 1};
+float QList[5] = {500, 500, 500, 500, 500}; // Change the value of sensor noise to get different KF performance
 
 //Serial Pointer
 HardwareSerial *SerialCom;
 
-float leftDist = 0;
-float rightDist = 0;
 int pos = 0;
 
+//Ultrasonic Sensor range
+float uSensor = 50;
 
-//============================================================================================
+//Checking Distance after initial movement
+float backSensor = 0;
+float rightSensor = 0;
+int i = 0; //index for how many paths have been done
 
+#define cw 1
+#define ccw 0
+#define rightTurn 1
+#define leftTurn 0
+#define rightWall 1
+#define leftWall 0
+
+////======================================================================================
+////GYROSCOPE VARIABLES
+//
+int sensorValue = 0; // read out value of sensor
+float gyroSupplyVoltage = 5; // supply voltage for gyro
+
+float gyroZeroVoltage = 0; // the value of voltage when gyro is zero
+float gyroSensitivity = 0.007; // gyro sensitivity unit is (mv/degree/second) get from datasheet
+float rotationThreshold = 1.5; // because of gyro drifting, defining rotation angular velocity less than this value will be ignored
+float gyroRate = 0; // read out value of sensor in voltage
+float currentAngle = 0; // current angle calculated by angular velocity integral on
+byte serialRead = 0; // for serial print control
+float gyroAngle = 0;
+int T = 50;
+//
+////======================================================================================
+//EKF MATRICES AND CONTROL COMMANDS
+
+int lIndex[2];
+
+float controlCommands[] = {0, 0, 0}; //0.44, 2.61
+float vx = controlCommands[0];
+float vy = controlCommands[1];
+float wz = controlCommands[2];
+
+Matrix<11> currentState; //x, y, theta, land1x, land1y, land2x, land2y, land3x, land3y, land4x, land4y
+Matrix<11> prevState;
+Matrix<3, 3> robotCov;
+Matrix<8, 8> landmarkCov;
+Matrix<8, 3> blCov;
+Matrix<3, 8> trCov;
+
+//======================================================================================
 void setup(void)
 {
-
   turret_motor.attach(11);
   pinMode(LED_BUILTIN, OUTPUT);
 
@@ -61,18 +148,46 @@ void setup(void)
   pinMode(TRIG_PIN, OUTPUT);
   digitalWrite(TRIG_PIN, LOW);
 
-  // Setup the Serial port and pointer, the pointer allows switching the debug info through the USB port(Serial) or Bluetooth port(Serial1) with ease.
+  //Setting up IR Sensors as inputs
+  pinMode(irLeftL, INPUT);
+  pinMode(irLeftS, INPUT);
+  pinMode(irRightL, INPUT);
+  pinMode(irRightS, INPUT);
+
+  //Setup the Serial port and pointer, the pointer allows switching the debug info through the USB port(Serial) or Bluetooth port(Serial1) with ease.
   SerialCom = &Serial;
   SerialCom->begin(115200);
   SerialCom->println("MECHENG706_Base_Code_25/01/2018");
   delay(1000);
   SerialCom->println("Setup....");
 
-  delay(1000); //settling time but no really needed
+  BluetoothSerial.begin(115200);
 
+  //EKF MATRICES SETUP (INITIALIZATION)=================================================
+  currentState.Fill(0);
+  prevState.Fill(0);
+  currentState(2) = 90; //starting angle of robot is 90 degrees wrt xy origin plane
+  prevState(2) = 90;
+  SerialCom->println("");
+  SerialCom->print("Current state first index:  ");
+  SerialCom->print(currentState(0));
+  SerialCom->println("");
+  Serial << "Current State: " << currentState << '\n';
+  robotCov.Fill(0);
+  blCov.Fill(0);
+  trCov.Fill(0);
+
+  landmarkCov.Fill(0);
+  for (int i = 0; i < 8; i++) { //Diagonal matrix
+    landmarkCov(i, i) = 999;
+  }
+  Serial << "landmark covariance: " << landmarkCov << '\n';
+
+  //====================================================================================
+  resetGyro();
 }
 
-//============================================================================================
+//======================================================================================
 
 void loop(void) //main loop
 {
@@ -91,25 +206,13 @@ void loop(void) //main loop
   };
 }
 
-//============================================================================================
-
-
-STATE initialising() {
-  //initialising
-  SerialCom->println("INITIALISING....");
-  delay(1000); //One second delay to see the serial string "INITIALISING...."
-  SerialCom->println("Enabling Motors...");
-  enable_motors();
-  SerialCom->println("RUNNING STATE...");
-  return RUNNING;
-}
-
-//============================================================================================
+//======================================================================================
 
 STATE running() {
 
   static unsigned long previous_millis;
-  read_serial_command();
+
+  //read_serial_command();
   fast_flash_double_LED_builtin();
 
   if (millis() - previous_millis > 500) {  //Arduino style 500ms timed execution statement
@@ -123,17 +226,14 @@ STATE running() {
     GYRO_reading();
 #endif
 
-#ifndef NO_HC-SR04
-    HC_SR04_range();
-#endif
+    //#ifndef NO_HC-SR04
+    //    HC_SR04_range();
+    //#endif
 
 #ifndef NO_BATTERY_V_OK
     if (!is_battery_voltage_OK()) return STOPPED;
 #endif
-
-
     turret_motor.write(pos);
-
     if (pos == 0)
     {
       pos = 45;
@@ -144,10 +244,78 @@ STATE running() {
     }
   }
 
+  //ENTER CODE HERE!======================================================================================================================
+  float maximumDistanceToWall = 20;
+  //See movementCommand file
+  while (isRunning == 1) {
+    //CHECKING STUFF
+    //alignWall(leftWall,10);
+    bool check = checkShortLong();
+    /*
+    //intial movement code
+    Serial.println("Intial movement to wall");
+    initMoveToWall(maximumDistanceToWall); //Turn
+    Serial.println("Rotate 90 degrees");
+    //rotateRobot(90, ccw); //Turn "90 degrees" clockwise given 1 rad/s
+    rotateRobot(90,cw);
+    Serial.println("Move towards corner");
+    alignWall(leftWall);
+    moveToCorner(maximumDistanceToWall);
+    
+    
+    int initialMovement = 2;
+    //Main zig zag motion
+    Serial.println("checks the Short and Long distance");
+
+    //This might be iffy make sure variables being returned are correct
+    if (checkShortLong()==true) { //If robot needs to turn initially (ie on left side of table)
+      Serial.println("Right side of table");
+      rotateRobot(90, ccw);
+      alignWall(leftWall);
+      forwardMovement(maximumDistanceToWall);
+      initialMovement = rightTurn;
+
+    } else { //If robot does not need to turn intially (ie on rigjht side of table)
+      Serial.println("Left side of table");
+      alignWall(rightWall);
+      forwardMovement(maximumDistanceToWall);
+      initialMovement = leftTurn;
+    }
+    Serial.println("Entered Zig Zag movemnt");
+    for (float DistanceToWall = 100; DistanceToWall >= 10; DistanceToWall - 10) {
+      while (DistanceToWall > 10) {
+        if (initialMovement == rightTurn) {
+          rightUturn(DistanceToWall);
+          forwardMovement(maximumDistanceToWall);
+          initialMovement = leftTurn;//Always alternates between left and right Turns
+        } else {
+          leftUturn(DistanceToWall);
+          forwardMovement(maximumDistanceToWall);
+          initialMovement = rightTurn;
+        }
+      }
+    }*/
+    
+    isRunning = 0;
+  }
+  Serial.print("isRunning is set to 0");
+  moveRobot(0, 0, 0);
+  return STOPPED;
+}
+
+//======================================================================================
+
+STATE initialising() {
+  //initialising
+  //  SerialCom->println("INITIALISING....");
+  delay(1000); //One second delay to see the serial string "INITIALISING...."
+  //  SerialCom->println("Enabling Motors...");
+  enable_motors();
+  //  SerialCom->println("RUNNING STATE...");
   return RUNNING;
 }
 
-//============================================================================================
+//======================================================================================
 
 //Stop of Lipo Battery voltage is too low, to protect Battery
 STATE stopped() {
@@ -183,178 +351,15 @@ STATE stopped() {
   return STOPPED;
 }
 
-//============================================================================================
+//======================================================================================
 
-void fast_flash_double_LED_builtin()
+void enable_motors()
 {
-  static byte indexer = 0;
-  static unsigned long fast_flash_millis;
-  if (millis() > fast_flash_millis) {
-    indexer++;
-    if (indexer > 4) {
-      fast_flash_millis = millis() + 700;
-      digitalWrite(LED_BUILTIN, LOW);
-      indexer = 0;
-    } else {
-      fast_flash_millis = millis() + 100;
-      digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN));
-    }
-  }
+  left_font_motor.attach(left_front);  // attaches the servo on pin left_front to turn Vex Motor Controller 29 On
+  left_rear_motor.attach(left_rear);  // attaches the servo on pin left_rear to turn Vex Motor Controller 29 On
+  right_rear_motor.attach(right_rear);  // attaches the servo on pin right_rear to turn Vex Motor Controller 29 On
+  right_font_motor.attach(right_front);  // attaches the servo on pin right_front to turn Vex Motor Controller 29 On
 }
-
-//============================================================================================
-
-void slow_flash_LED_builtin()
-{
-  static unsigned long slow_flash_millis;
-  if (millis() - slow_flash_millis > 2000) {
-    slow_flash_millis = millis();
-    digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN));
-  }
-}
-
-//============================================================================================
-
-void speed_change_smooth()
-{
-  speed_val += speed_change;
-  if (speed_val > 1000)
-    speed_val = 1000;
-  speed_change = 0;
-}
-
-//============================================================================================
-
-#ifndef NO_BATTERY_V_OK
-boolean is_battery_voltage_OK()
-{
-  static byte Low_voltage_counter;
-  static unsigned long previous_millis;
-
-  int Lipo_level_cal;
-  int raw_lipo;
-  //the voltage of a LiPo cell depends on its chemistry and varies from about 3.5V (discharged) = 717(3.5V Min) https://oscarliang.com/lipo-battery-guide/
-  //to about 4.20-4.25V (fully charged) = 860(4.2V Max)
-  //Lipo Cell voltage should never go below 3V, So 3.5V is a safety factor.
-  raw_lipo = analogRead(A0);
-  Lipo_level_cal = (raw_lipo - 717);
-  Lipo_level_cal = Lipo_level_cal * 100;
-  Lipo_level_cal = Lipo_level_cal / 143;
-
-  if (Lipo_level_cal > 0 && Lipo_level_cal < 160) {
-    previous_millis = millis();
-    SerialCom->print("Lipo level:");
-    SerialCom->print(Lipo_level_cal);
-    SerialCom->print("%");
-    // SerialCom->print(" : Raw Lipo:");
-    // SerialCom->println(raw_lipo);
-    SerialCom->println("");
-    Low_voltage_counter = 0;
-    return true;
-  } else {
-    if (Lipo_level_cal < 0)
-      SerialCom->println("Lipo is Disconnected or Power Switch is turned OFF!!!");
-    else if (Lipo_level_cal > 160)
-      SerialCom->println("!Lipo is Overchanged!!!");
-    else {
-      SerialCom->println("Lipo voltage too LOW, any lower and the lipo with be damaged");
-      SerialCom->print("Please Re-charge Lipo:");
-      SerialCom->print(Lipo_level_cal);
-      SerialCom->println("%");
-    }
-
-    Low_voltage_counter++;
-    if (Low_voltage_counter > 5)
-      return false;
-    else
-      return true;
-  }
-
-}
-#endif
-
-//============================================================================================
-
-#ifndef NO_HC-SR04
-void HC_SR04_range()
-{
-  unsigned long t1;
-  unsigned long t2;
-  unsigned long pulse_width;
-  float cm;
-  float inches;
-
-  // Hold the trigger pin high for at least 10 us
-  digitalWrite(TRIG_PIN, HIGH);
-  delayMicroseconds(10);
-  digitalWrite(TRIG_PIN, LOW);
-
-  // Wait for pulse on echo pin
-  t1 = micros();
-  while ( digitalRead(ECHO_PIN) == 0 ) {
-    t2 = micros();
-    pulse_width = t2 - t1;
-    Serial.println (pulse_width);
-    if ( pulse_width > (MAX_DIST + 1000)) {
-      SerialCom->println("HC-SR04: NOT found");
-      return;
-    }
-  }
-
-  // Measure how long the echo pin was held high (pulse width)
-  // Note: the micros() counter will overflow after ~70 min
-
-  t1 = micros();
-  while ( digitalRead(ECHO_PIN) == 1)
-  {
-    t2 = micros();
-    pulse_width = t2 - t1;
-    if ( pulse_width > (MAX_DIST + 1000) ) {
-      SerialCom->println("HC-SR04: Out of range");
-      return;
-    }
-  }
-
-  t2 = micros();
-  pulse_width = t2 - t1;
-
-  // Calculate distance in centimeters and inches. The constants
-  // are found in the datasheet, and calculated from the assumed speed
-  //of sound in air at sea level (~340 m/s).
-  cm = pulse_width / 58.0;
-  inches = pulse_width / 148.0;
-
-  // Print out results
-  if ( pulse_width > MAX_DIST ) {
-    SerialCom->println("HC-SR04: Out of range");
-  } else {
-    SerialCom->print("HC-SR04:");
-    SerialCom->print(cm);
-    SerialCom->println("cm");
-  }
-}
-#endif
-
-//============================================================================================
-
-void Analog_Range_A4()
-{
-  SerialCom->print("Analog Range A4:");
-  SerialCom->println(analogRead(A4));
-}
-
-#ifndef NO_READ_GYRO
-void GYRO_reading()
-{
-  SerialCom->print("GYRO A3:");
-  SerialCom->println(analogRead(A3));
-}
-#endif
-
-//============================================================================================
-
-//----------------------Motor moments------------------------
-//The Vex Motor Controller 29 use Servo Control signals to determine speed and direction, with 0 degrees meaning neutral https://en.wikipedia.org/wiki/Servo_control
 
 void disable_motors()
 {
@@ -367,102 +372,4 @@ void disable_motors()
   pinMode(left_rear, INPUT);
   pinMode(right_rear, INPUT);
   pinMode(right_front, INPUT);
-}
-
-//============================================================================================
-
-void enable_motors()
-{
-  left_font_motor.attach(left_front);  // attaches the servo on pin left_front to turn Vex Motor Controller 29 On
-  left_rear_motor.attach(left_rear);  // attaches the servo on pin left_rear to turn Vex Motor Controller 29 On
-  right_rear_motor.attach(right_rear);  // attaches the servo on pin right_rear to turn Vex Motor Controller 29 On
-  right_font_motor.attach(right_front);  // attaches the servo on pin right_front to turn Vex Motor Controller 29 On
-}
-
-//============================================================================================
-void stop() //Stop
-{
-  left_font_motor.writeMicroseconds(1500);
-  left_rear_motor.writeMicroseconds(1500);
-  right_rear_motor.writeMicroseconds(1500);
-  right_font_motor.writeMicroseconds(1500);
-}
-
-//============================================================================================
-void forward()
-{
-  left_font_motor.writeMicroseconds(1500 + speed_val);
-  left_rear_motor.writeMicroseconds(1500 + speed_val);
-  right_rear_motor.writeMicroseconds(1500 - speed_val);
-  right_font_motor.writeMicroseconds(1500 - speed_val);
-}
-
-//============================================================================================
-void reverse ()
-{
-  left_font_motor.writeMicroseconds(1500 - speed_val);
-  left_rear_motor.writeMicroseconds(1500 - speed_val);
-  right_rear_motor.writeMicroseconds(1500 + speed_val);
-  right_font_motor.writeMicroseconds(1500 + speed_val);
-}
-
-//============================================================================================
-void ccw ()
-{
-  left_font_motor.writeMicroseconds(1500 - speed_val);
-  left_rear_motor.writeMicroseconds(1500 - speed_val);
-  right_rear_motor.writeMicroseconds(1500 - speed_val);
-  right_font_motor.writeMicroseconds(1500 - speed_val);
-}
-
-//============================================================================================
-void cw ()
-{
-  left_font_motor.writeMicroseconds(1500 + speed_val);
-  left_rear_motor.writeMicroseconds(1500 + speed_val);
-  right_rear_motor.writeMicroseconds(1500 + speed_val);
-  right_font_motor.writeMicroseconds(1500 + speed_val);
-}
-
-//============================================================================================
-void strafe_left ()
-{
-  left_font_motor.writeMicroseconds(1500 - speed_val);
-  left_rear_motor.writeMicroseconds(1500 + speed_val);
-  right_rear_motor.writeMicroseconds(1500 + speed_val);
-  right_font_motor.writeMicroseconds(1500 - speed_val);
-}
-
-//============================================================================================
-void strafe_right ()
-{
-  left_font_motor.writeMicroseconds(1500 + speed_val);
-  left_rear_motor.writeMicroseconds(1500 - speed_val);
-  right_rear_motor.writeMicroseconds(1500 - speed_val);
-  right_font_motor.writeMicroseconds(1500 + speed_val);
-}
-
-//============================================================================================
-
-float getDistance (int sensorPin) {
-
-  float dist;
-  uint16_t sensorValue = 0;
-
-  sensorValue = analogRead(sensorPin);
-
-  if (sensorPin == A4) {
-    dist = pow((3148.6 / sensorValue), (1 / 0.789));
-  }
-  else if (sensorPin == A5) {
-    dist = pow((3365.3 / sensorValue), (1 / 0.818));
-  }
-  else if (sensorPin == A6) {
-    dist = pow((1926.9 / sensorValue), (1 / 0.851));
-  }
-  else {
-    dist = pow((1837.2 / sensorValue), (1 / 0.813));
-  }
-  return dist;
-
 }
