@@ -2,12 +2,10 @@
 
 #include <Servo.h>  //Need for Servo pulse output
 #include <SoftwareSerial.h>
+#include <avr/io.h>
+#include <avr/interrupt.h>
 #include "BasicLinearAlgebra.h"
 using namespace BLA;
-
-uint16_t timeStamp;
-
-float dist;
 
 //#define NO_READ_GYRO  //Uncomment of GYRO is not attached.
 //#define NO_HC-SR04 //Uncomment of HC-SR04 ultrasonic ranging sensor is not attached.
@@ -51,14 +49,7 @@ Servo right_font_motor;  // create servo object to control Vex Motor Controller 
 Servo turret_motor;
 
 //======================================================================================
-//VARIABLES
-
-int isRunning = 1;
-
-//Time
-uint16_t t1;
-double elapsedTime;
-
+//BLUETOOTH SETUP
 #define STARTUP_DELAY 10 // Seconds
 #define LOOP_DELAY 10 // miliseconds
 #define SAMPLE_DELAY 10 // miliseconds
@@ -71,34 +62,36 @@ double elapsedTime;
 #define OUTPUTBLUETOOTHMONITOR 1
 SoftwareSerial BluetoothSerial(BLUETOOTH_RX, BLUETOOTH_TX);
 
+//======================================================================================
+//VARIABLES
+
+//Structure for velocities
+struct velocities {
+  float x;
+  float y;
+  float z;
+};
+
+velocities v = {0, 0, 0}; //initialise a velocities structure called v
+
 //State machine states
 enum STATE { INITIALISING, RUNNING, STOPPED };
 
 int speed_val = 300; //-500 to 500
 int speed_change;
 
-// Anything over 400 cm (23200 us pulse) is "out of range". Hit:If you decrease to this the ranging sensor but the timeout is short, you may not need to read up to 4meters.
-const unsigned int MAX_DIST = 23200;
-
-//(in order): sonar, irLeftL, irLeftS, irRightL, irRightS
-float Mut_prevlist[5] = {0, 0, 0, 0, 0}; //Initial value/mean of the 5 sensors
-float Sigmat_prevlist[5] = {999, 999, 999, 999, 999}; //Initial Covariance of the 5 sensors
-float RList[5] = {1, 1, 1, 1, 1};
-float QList[5] = {500, 500, 500, 500, 500}; // Change the value of sensor noise to get different KF performance
-
 //Serial Pointer
 HardwareSerial *SerialCom;
 
-int pos = 0;
+int pos = 0; //Variable for turret servo motor
 
-//Ultrasonic Sensor range
-float uSensor = 50;
+int wallNumber; //for EKF and data association
 
-//Checking Distance after initial movement
-float backSensor = 0;
-float rightSensor = 0;
+int isrCount = 0; //counter for ISR
+int isRunning = 1; //Variable used for running the program
 int i = 0; //index for how many paths have been done
 
+//Turning definitions (For Jason and Aniqah)
 #define cw 1
 #define ccw 0
 #define rightTurn 1
@@ -106,9 +99,15 @@ int i = 0; //index for how many paths have been done
 #define rightWall 1
 #define leftWall 0
 
-////======================================================================================
-////GYROSCOPE VARIABLES
-//
+//======================================================================================
+//ULTRASONIC VARIABLES
+
+// Anything over 400 cm (23200 us pulse) is "out of range". Hit:If you decrease to this the ranging sensor but the timeout is short, you may not need to read up to 4meters.
+const unsigned int MAX_DIST = 23200;
+
+//======================================================================================
+//GYROSCOPE VARIABLES
+
 int sensorValue = 0; // read out value of sensor
 float gyroSupplyVoltage = 5; // supply voltage for gyro
 
@@ -119,28 +118,44 @@ float gyroRate = 0; // read out value of sensor in voltage
 float currentAngle = 0; // current angle calculated by angular velocity integral on
 byte serialRead = 0; // for serial print control
 float gyroAngle = 0;
-int T = 50;
-//
-////======================================================================================
+
+int T = 50;// gyroscope delay time (For Jason and Aniqah)
+
+//======================================================================================
 //EKF MATRICES AND CONTROL COMMANDS
 
-int lIndex[2];
+// Sensor KF
+//(in order): sonar, irLeftL, irLeftS, irRightL, irRightS
+float Mut_prevlist[5] = {0, 0, 0, 0, 0}; //Initial/mean value of the 5 sensors
+float Sigmat_prevlist[5] = {999, 999, 999, 999, 999}; //Initial Covariance of the 5 sensors
+float RList[5] = {1, 1, 1, 1, 1};
+float QList[5] = {500, 500, 500, 500, 500}; // Change the value of sensor noise to get different KF performance
 
-float controlCommands[] = {0, 0, 0}; //0.44, 2.61
-float vx = controlCommands[0];
-float vy = controlCommands[1];
-float wz = controlCommands[2];
+//velocities x,y,z in that order. These velocities are used as inputs for motor commands but more importantly, as inputs for the extended kalman filter
+//(For Carl and Suvarna)
+//float velocities[3] = {0, 0, 0};
 
+
+//EFK MATRICES
 Matrix<11> currentState; //x, y, theta, land1x, land1y, land2x, land2y, land3x, land3y, land4x, land4y
 Matrix<11> prevState;
-Matrix<3, 3> robotCov;
-Matrix<8, 8> landmarkCov;
-Matrix<8, 3> blCov;
-Matrix<3, 8> trCov;
+
+Matrix<11, 11>covarianceMatrix;
+//Matrix<3, 3> robotCov;
+//Matrix<8, 8> landmarkCov; //landmark covariance
+//Matrix<8, 3> blCov; //bottom left covariance
+//Matrix<3, 8> trCov; //top right covariance
+RefMatrix<3, 3, Array<11, 11>> robotCov(covarianceMatrix.Submatrix<3, 3>(0, 0)); //Robot Cov matrix
+RefMatrix<8, 8, Array<11, 11>> landmarkCov(covarianceMatrix.Submatrix<8, 8>(3, 3)); //Landmark Cov matrix
+RefMatrix<8, 3, Array<11, 11>> blCov(covarianceMatrix.Submatrix<8, 3>(3, 0)); //Bottom Left Cov matrix
+RefMatrix<3, 8, Array<11, 11>> trCov(covarianceMatrix.Submatrix<3, 8>(0, 3)); //Top Right Cov matrix
+
+//RefMatrix<4, 4, Array<11, 11>> apples(covarianceMatrix.Submatrix<4, 4>(4, 2));
 
 //======================================================================================
 void setup(void)
 {
+  resetGyro();
   turret_motor.attach(11);
   pinMode(LED_BUILTIN, OUTPUT);
 
@@ -166,25 +181,24 @@ void setup(void)
   //EKF MATRICES SETUP (INITIALIZATION)=================================================
   currentState.Fill(0);
   prevState.Fill(0);
-  currentState(2) = 90; //starting angle of robot is 90 degrees wrt xy origin plane
-  prevState(2) = 90;
-  SerialCom->println("");
-  SerialCom->print("Current state first index:  ");
-  SerialCom->print(currentState(0));
-  SerialCom->println("");
-  Serial << "Current State: " << currentState << '\n';
-  robotCov.Fill(0);
-  blCov.Fill(0);
-  trCov.Fill(0);
+  covarianceMatrix.Fill(0);
 
-  landmarkCov.Fill(0);
-  for (int i = 0; i < 8; i++) { //Diagonal matrix
+  for (int i = 0; i < 8; i++) { //Diagonal matrix for the landmark covariance matrix
     landmarkCov(i, i) = 999;
   }
-  Serial << "landmark covariance: " << landmarkCov << '\n';
+
+  Serial << "Current State: " << currentState << '\n';
+  Serial << "Initial Robot Covariance Matrix: " << robotCov << '\n';
+  Serial << " Iniital Landmark covariance: " << landmarkCov << '\n';
 
   //====================================================================================
-  resetGyro();
+  //TIMER INTERRUPT SETUP FOR USE OF THE EKF
+  cli();
+  OCR2A = 252; //CTC OCR1A top value, upon overflow, 1 second has passed
+  //
+  TCCR2B |= (1 << WGM21) | (1 << CS22) | (1 << CS21) | (1 << CS20); //config CTC mode, prescaler 1024
+  TIMSK2 |= (1 << OCIE2A);
+  sei();
 }
 
 //======================================================================================
@@ -245,13 +259,29 @@ STATE running() {
   }
 
   //ENTER CODE HERE!======================================================================================================================
-  float maximumDistanceToWall = 20;
-  //See movementCommand file
-  while (isRunning == 1) {
-    //CHECKING STUFF
-    //alignWall(leftWall,10);
-    bool check = checkShortLong();
-    /*
+
+  initMoveToWall(20);
+  rotateRobot(90, 0);
+
+  //*****************************************************************************
+  // Carl and Suvarna's requirements for the EKF
+  //The EKF requires the current velocities that are being imposed upon the robot to update its coordinates on the table.
+  //This is done by modifying the velocities array (line 127), using the setV function. For convenience, the velocities
+  //Array is also set as an input to movement command functions. See example below.
+
+  // setV(0,0.2,0); //Set the velocities of the robot, moving forward in the y direction only with 0.2 m/s
+  // initMoveToWall(velocities, 20); //use the initMoveToWall function, given the velocities array, and the 20cm threshold
+  //For the robot to stop.
+  // setV(0,0,1);
+
+  //*****************************************************************************
+
+  //Jason and Aniqah's approach for robot path following
+  //  float maximumDistanceToWall = 20;
+  //CHECKING STUFF
+  //alignWall(leftWall,10);
+  //    bool check = checkShortLong();
+  /*
     //intial movement code
     Serial.println("Intial movement to wall");
     initMoveToWall(maximumDistanceToWall); //Turn
@@ -261,45 +291,40 @@ STATE running() {
     Serial.println("Move towards corner");
     alignWall(leftWall);
     moveToCorner(maximumDistanceToWall);
-    
-    
+
+
     int initialMovement = 2;
     //Main zig zag motion
     Serial.println("checks the Short and Long distance");
-
     //This might be iffy make sure variables being returned are correct
     if (checkShortLong()==true) { //If robot needs to turn initially (ie on left side of table)
-      Serial.println("Right side of table");
-      rotateRobot(90, ccw);
-      alignWall(leftWall);
-      forwardMovement(maximumDistanceToWall);
-      initialMovement = rightTurn;
-
+    Serial.println("Right side of table");
+    rotateRobot(90, ccw);
+    alignWall(leftWall);
+    forwardMovement(maximumDistanceToWall);
+    initialMovement = rightTurn;
     } else { //If robot does not need to turn intially (ie on rigjht side of table)
-      Serial.println("Left side of table");
-      alignWall(rightWall);
-      forwardMovement(maximumDistanceToWall);
-      initialMovement = leftTurn;
+    Serial.println("Left side of table");
+    alignWall(rightWall);
+    forwardMovement(maximumDistanceToWall);
+    initialMovement = leftTurn;
     }
     Serial.println("Entered Zig Zag movemnt");
     for (float DistanceToWall = 100; DistanceToWall >= 10; DistanceToWall - 10) {
-      while (DistanceToWall > 10) {
-        if (initialMovement == rightTurn) {
-          rightUturn(DistanceToWall);
-          forwardMovement(maximumDistanceToWall);
-          initialMovement = leftTurn;//Always alternates between left and right Turns
-        } else {
-          leftUturn(DistanceToWall);
-          forwardMovement(maximumDistanceToWall);
-          initialMovement = rightTurn;
-        }
+    while (DistanceToWall > 10) {
+      if (initialMovement == rightTurn) {
+        rightUturn(DistanceToWall);
+        forwardMovement(maximumDistanceToWall);
+        initialMovement = leftTurn;//Always alternates between left and right Turns
+      } else {
+        leftUturn(DistanceToWall);
+        forwardMovement(maximumDistanceToWall);
+        initialMovement = rightTurn;
       }
+    }
     }*/
-    
-    isRunning = 0;
-  }
-  Serial.print("isRunning is set to 0");
-  moveRobot(0, 0, 0);
+  moveRobot(setV(0, 0, 0));
+  delay(1000000000);
   return STOPPED;
 }
 
@@ -373,3 +398,4 @@ void disable_motors()
   pinMode(right_rear, INPUT);
   pinMode(right_front, INPUT);
 }
+//======================================================================================

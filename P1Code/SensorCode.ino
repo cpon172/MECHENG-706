@@ -2,7 +2,7 @@
 
 //ULTRASONIC SENSOR DISTANCE
 
-#ifndef GetSonarDist
+//#ifndef GetSonarDist
 //======================================================================================
 float GetSonarDist() //HC_SR04_range
 {
@@ -24,7 +24,6 @@ float GetSonarDist() //HC_SR04_range
     pulse_width = t2 - t1;
     if (pulse_width > (MAX_DIST + 1000)) {
       SerialCom->println("Ultrasonic Distance NOT found");
-      return;
     }
   }
 
@@ -38,7 +37,6 @@ float GetSonarDist() //HC_SR04_range
     pulse_width = t2 - t1;
     if ( pulse_width > (MAX_DIST + 1000) ) {
       SerialCom->println("Ultrasonic Distance Out of range");
-      return;
     }
   }
 
@@ -50,25 +48,13 @@ float GetSonarDist() //HC_SR04_range
   //of sound in air at sea level (~340 m/s).
   cm = pulse_width / 58.0;
 
-  /*
-  // Print out results
-  if ( pulse_width > MAX_DIST ) {
-    SerialCom->println("Ultrasonic Distance Out of range");
-  } else {
-    SerialCom->print("Ultrasonic Distance:");
-    SerialCom->print(cm);
-    SerialCom->println(" ");
-  }
-  */
-
   return cm;
 }
-#endif
+//#endif
 
 //IR SENSOR DISTANCE
 //======================================================================================
-float getIRDistance (int IRPin)
-{
+float getIRDistance (int IRPin) {
   float IRArray[5];
   float dist;
   float IRValue = 0;
@@ -105,7 +91,6 @@ void resetGyro(void)
   int i;
   float sum = 0;
   pinMode(gyroPin, INPUT);
-
   for (i = 0; i < 100; i++) //Read 100 values of voltage when gyro is at still, to calculate the zero-drift.
   {
     sensorValue = analogRead(gyroPin);
@@ -116,22 +101,12 @@ void resetGyro(void)
   currentAngle=0; //Reset the global variable to 0
   gyroAngle=0; //Reset the global variable to 0
   gyroRate=0; //Reset the global variable to 0
-  
 }
 
 //GYRO ANGLE
 //======================================================================================
 float getCurrentAngle()
 {
-  //  if (Serial.available()) // Check for input from terminal
-  //  {
-  //
-  //    serialRead = Serial.read(); // Read input
-  //    if (serialRead == 49) // Check for flag to execute, 49 is ascii for 1
-  //    {
-  //      Serial.end(); // end the serial communication to display the sensor data on monitor
-  //    }
-  //  }
 
   // convert the 0-1023 signal to 0-5v
   gyroRate = (analogRead(gyroPin) * gyroSupplyVoltage) / 1023;
@@ -147,8 +122,10 @@ float getCurrentAngle()
   {
     // we are running a loop in T. one second will run (1000/T).
     float angleChange = angularVelocity / (1000 / 100);
-    currentAngle += angleChange;
-    gyroAngle = (1.0464 * currentAngle) + 0.0664;
+
+    //***********************************************************************************************
+    currentAngle -= angleChange; //MINUS THE ANGLE, BECAUSE TURNING 90 DEGREES IS ANTICLOCKWISE IN CARTESIAN COORDINATES!
+    gyroAngle = (1.0464 * currentAngle) - 0.0664;
   }
   // keep the angle between 0-360
   if (gyroAngle < 0)
@@ -164,48 +141,34 @@ float getCurrentAngle()
 }
 
 //======================================================================================
-//
-//sensorDistIR = Kalman(prev_sensorDistIR, Mut_prev);
-//
-////Function definition==================================================================
+//KALMAN FILTER
+
 //float Mut_prevlist[5] = {0,0,0,0,0}; //Initial value/mean of the 5 sensors
 ////(in order): sonar, irLeftL, irLeftS, irRightL, irRightS
 //float Sigmat_prevlist[5] = {999,999,999,999,999}; //Initial Covariance of the 5 sensors
-//
-
-//float Rt = 1;
-//float Qt = 1;  // Change the value of sensor noise to get different KF performance
 
 float Kalman(float zt, int sensorPin) {
   double Mut, Mut_next, Sigmat, Sigmat_next, Kt;
   int i;
 
-  if (sensorPin == irLeftL) {
-    i = 1;
-  }
-  else if (sensorPin == irLeftS) {
-    i = 2;
-  }
-  else if (sensorPin == irRightL) {
-    i = 3;
-  }
-  else if (sensorPin == irRightS) {
-    i = 4;
-  }
-  else {
-    i = 0;
-  }
-
-  //Serial.println(Mut_prevlist[1]);
+  if (sensorPin == irLeftL) 
+  {i = 1;}
+  else if (sensorPin == irLeftS) 
+  {i = 2;}
+  else if (sensorPin == irRightL) 
+  {i = 3;}
+  else if (sensorPin == irRightS) 
+  {i = 4;}
+  else 
+  {i = 0;}
 
   //Prediction
   Mut = Mut_prevlist[i];
   Sigmat = Sigmat_prevlist[i] + RList[i];
-  //  Serial.println(Sigmat);
 
   //Correction
   Kt = Sigmat / (Sigmat + QList[i]);
-  Mut_next = Mut + Kt * (zt - Mut); //current mean/value
+  Mut_next = Mut + Kt * (zt - Mut); //current mean value
   Sigmat_next = (1 - Kt) * Sigmat; //current covariance
 
   //Update previous values

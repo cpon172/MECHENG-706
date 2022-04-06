@@ -1,71 +1,96 @@
-//File Contains all the SLAM code for prediction and correction steps
+//PREDICTION STEP
 
-//#include <BasicLinearAlgebra.h>
-//using namespace BLA;
+void prediction(velocities v) {
 
-//======================================================================================
-void prediction(float controlCommands[], float elapsedTime) {
+  //Matrix<11> currentState; //x, y, theta, land1x, land1y, land2x, land2y, land3x, land3y, land4x, land4y
+  //  Matrix<3, 3>Rt;
+  //  Rt.Fill(1); //Uncertainty of odometry (tbh not sure what value should this matrix be filled up with).
+  float Rt = 1;
 
-  Matrix<3, 3>Rt;
-  Rt.Fill(1); //Uncertainty of odometry (tbh not sure what value should this matrix be filled up with).
+  currentState(2) = getCurrentAngle();//prevState(2) + v[2] * 0.5 * 180 / PI; //updating Z //rad + rads-1 *s = rad -> degrees
 
-  //Setting up variables
-  elapsedTime = elapsedTime * 0.001;
-  Serial.print("Time in predict: ");
-  Serial.println (elapsedTime);
+  prevState(2) = currentState(2);
 
-  //predict x y z coordinates
-  for (int i = 0; i < 3; i++) {
-    currentState(i) =  prevState(i) + controlCommands[i] * elapsedTime;
-  }
+  //updating X
+  currentState(0) = prevState(0) + (v.x * cos(currentState(2) * PI / 180) + v.y * sin(currentState(2) * PI / 180)) * 0.5;
+  prevState(0) = currentState(0); //making prevX into updated X for next call
+
+  //updating Y
+  currentState(1) = prevState(1) + (v.y * cos(currentState(2) * PI / 180) - v.x * sin(currentState(2) * PI / 180)) * 0.5;
+  prevState(1) = currentState(1);
+
+  serialOutput(currentState(0), currentState(1), currentState(2));
 
   //define jacobian Gxt
   Matrix<3, 3> Gxt;
+  Gxt.Fill(0);
   for (int i = 0; i < 3; i++) {
     Gxt(i, i) =  1;
   }
+  Gxt(2, 0) = 0.5 * (v.y * cos(currentState(2) * PI / 180) - v.x * sin(currentState(2) * PI / 180)); //dx
+    Gxt(1, 2) = -0.5 * (v.x * cos(currentState(2) * PI / 180) + v.y * sin(currentState(2) * PI / 180)); //dy
+  //    Serial << "Prediction Jacobian: " << Gxt << '\n';
 
-  //Update the covariance matrixes except landCov
+  //Update the covariance matrixes except the landmark matrix
   robotCov = (Gxt * robotCov * ~Gxt) + Rt;
-  trCov = Gxt * trCov;
-  blCov = ~trCov;
+  trCov = Gxt * trCov + Rt;
+  blCov = ~trCov + Rt;
+  serialOutput(currentState(0), currentState(1), currentState(2)); //Print the current states (currentState(2)) is not necessary to print
 }
 
 //======================================================================================
-void correction(float sensorValue, int L[]) {
-  if (sensorValue != 9999) { //if sensor value is valid and in range
+//CORRECTION STEP
+void correction(int wallNumber) {
+  float r = GetSonarDist(); //returns range of wall from robot in cm
 
+  //  float wallLocation(0,0) = r;
+  //  wallLocation(0,1) = currentState(2);
+
+  //define jacobian lowHt
+  Matrix<4, 4> lowHt;
+  lowHt.Fill(0);
+
+  lowHt(0, 0) = -r * r * cos(currentState(2) * PI / 180);
+  lowHt(0, 1) = -r * r * sin(currentState(2) * PI / 180);
+  lowHt(0, 2) = 0;
+  lowHt(0, 3) = r * r * cos(currentState(2) * PI / 180);
+  lowHt(0, 4) = r * r * sin(currentState(2) * PI / 180);
+
+  lowHt(1, 0) = r * sin(currentState(2) * PI / 180);
+  lowHt(1, 1) = -r * cos(currentState(2) * PI / 180);
+  lowHt(1, 2) = -1 * pow(r, 2);
+  lowHt(1, 3) = -r * sin(currentState(2) * PI / 180);
+  lowHt(1, 4) = r * cos(currentState(2) * PI / 180);
+
+  lowHt = lowHt * (1 / (r * r));
+
+  switch (wallNumber) {
+    case 1: ; //wall 1
+
+
+    case 2: ; //wall 2
+
+    case 3: ; //wall 3
   }
-  Serial.print(atan2(15, 20));
 }
 
-//float predictState(int coordinate, float v, float w, double elapsedTime){
-//  elapsedTime = elapsedTime/1000.0;
-//
-//  //Serial.print(A[1][1]);
-//
-//  float angleChange = w*elapsedTime; //angularvelocity*deltaT
-//  float z = this->currentState[2];
-//  float newx = this->nextState[0];
-//  float newy = this->nextState[1];
-//  float newz = this->nextState[2];
-//  float x = this->currentState[0];
-//  float y = this->currentState[1];
-////
-////  switch(coordinate) {
-////    case 1: //predicting X
-////      newx = x + v*elapsedTime;
-////      return(newx);
-////      break;
-////
-////    case 2: //predicting Y
-////      newy = y + v*elapsedTime;
-////      return(newy);
-////      break;
-////
-////    case 3: //predicting Z (theta)
-////      newz = z + angleChange;
-////      return(newz);
-////      break;
-////  }
-//}
+//======================================================================================
+
+//ISR to update coordinates
+ISR(TIMER2_COMPA_vect) {
+  if (isrCount == 31) { //When 31 ISRs occur, ~0.5 seconds have passed by
+    prediction(v);
+    //correction(wallNumber);
+    isrCount = 0; //Reset count
+  }
+  isrCount++; //update count
+}
+
+//======================================================================================
+
+velocities setV(float vx, float vy, float wz) {
+  v.x = vx;
+  v.y = vy;
+  v.z = wz;
+  return v;
+}

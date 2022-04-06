@@ -1,49 +1,42 @@
 //File Contains all the functions related to the motor movement commands
 //======================================================================================
 void initMoveToWall(float distanceToWall) {
-  Serial.println("Entered Intial movement to wall function");
+  Serial.println("Entered Initial movement to wall function");
   do {
-    moveRobot(0, 0.44, 0);
-    uSensor = GetSonarDist();
-  } while (uSensor > distanceToWall);
-  moveRobot(0, 0, 0);//Stop movement
+    moveRobot(setV(0, 0.44, 0));
+  } while (GetSonarDist() > distanceToWall);
+  moveRobot(setV(0, 0, 0)); //Stop movement
   delay(1000);
 }
 
 //======================================================================================
 void moveToCorner(float distanceToWall) {
   Serial.println("Entered move to corner function");
-
   do {
-    moveRobot(0, 0.44, 0);
-    uSensor = GetSonarDist();
+    moveRobot(setV(0, 0.44, 0));
 
     if ((getIRDistance(irLeftS) < 12) || (getIRDistance(irLeftL) < 12)) {
-      moveRobot(0.2, 0.2, 0);//Move robot forwards + right
+      moveRobot(setV(0.2, 0.2, 0));//Move robot forwards + left
       delay(50);
     }
     if ((getIRDistance(irLeftS) > 12) || (getIRDistance(irLeftL) > 12)) {
-      moveRobot(-0.2, 0.2, 0);//Move robot forwards + left
+      moveRobot(setV(-0.2, 0.2, 0));//Move robot forwards + right
       delay(50);
     }
-  } while (uSensor > distanceToWall);//Stop when ultrasonic sensor has detected that distance wall has been reached.
-  moveRobot(0, 0, 0);
+  } while (GetSonarDist() > distanceToWall);//Stop when ultrasonic sensor has detected that distance wall has been reached.
+  moveRobot(setV(0, 0, 0));
   delay(1000);
 }
 
 //======================================================================================
 void rotateRobot(float angle, bool angleDirection) {//update function to use both gyro and ir sensors
   Serial.println("Entered rotate robot function");
-
   float presentAngle = 0; //Reset current angle
-
   resetGyro();
-
-
   if (angleDirection == 1) {         //Rotating CW
     Serial.println("Rotate Clockwise");
     do {
-      moveRobot(0, 0, 1);
+      moveRobot(setV(0, 0, 1));
       //get current angle and print
       presentAngle = getCurrentAngle();
       Serial.print("This is the currentAngle: ");
@@ -52,10 +45,11 @@ void rotateRobot(float angle, bool angleDirection) {//update function to use bot
       Serial.println(angle);
     } while ( (presentAngle < (angle * 0.93)) || (presentAngle == 0) );
   }
+
   else if (angleDirection == 0) {   //Rotating CCW
     Serial.println("Rotate counterclockwise");
     do {
-      moveRobot(0, 0, -1);
+      moveRobot(setV(0, 0, -1));
       //get current angle and print
       presentAngle = getCurrentAngle();
       Serial.print("This is the currentAngle: ");
@@ -64,28 +58,28 @@ void rotateRobot(float angle, bool angleDirection) {//update function to use bot
       Serial.println(angle);
     } while (((presentAngle) > ((360 - angle) * 1.07)) || (presentAngle == 0));
   }
-
-  moveRobot(0, 0, 0);
+  moveRobot(setV(0, 0, 0));
   delay(1000);
 }
 
 //======================================================================================
+
 void alignWall(bool senseDirection, float DistanceToWall) {
   if (senseDirection) {
     do {
       irRightLVal = getIRDistance(irRightL);
       irRightSVal = getIRDistance(irRightS);
       if (irRightLVal >= irRightSVal) {
-        moveRobot(0, 0, -0.5); //Back right is too far away, rotate left
+        moveRobot(setV(0, 0, -0.5)); //Back right is too far away, rotate left
       }
       else if (irRightLVal <= irRightSVal) {
-        moveRobot(0, 0, 0.5); //Front Left is too far away, rotate left
+        moveRobot(setV(0, 0, 0.5)); //Front Left is too far away, rotate left
       }
       else if ((irRightLVal && irRightSVal) < DistanceToWall) { //Distance too far from wall, moving closer
-        moveRobot(1, 0, 0);
+        moveRobot(setV(1, 0, 0));
       }
       else { //Distance too close to wall, moving closer
-        moveRobot(-1, 0, 0);
+        moveRobot(setV(-1, 0, 0));
       }
       delay(50);
     } while ((abs(irRightLVal - irRightSVal) > 1) && (irRightLVal <= DistanceToWall) && (irRightSVal <= DistanceToWall));
@@ -106,10 +100,10 @@ void alignWall(bool senseDirection, float DistanceToWall) {
       Serial.println(irLeftSVal);
 
       if (irLeftLVal >= irLeftSVal) {
-        moveRobot(0, 0, 0.3);  //Back Left is too far away, rotate right
+        moveRobot(setV(0,0,0.3));  //Back Left is too far away, rotate right
       }
       else if (irLeftLVal <= irLeftSVal) {
-        moveRobot(0, 0, -0.3); //Front Left is too far away, rotate left
+        moveRobot(setV(0, 0, -0.3)); //Front Left is too far away, rotate left
       }
       Serial.print("Have a look: ");
       Serial.println(abs(irLeftLVal - irLeftSVal));
@@ -128,7 +122,7 @@ void alignWall(bool senseDirection, float DistanceToWall) {
     } while (counter < 5);
     Serial.println("Exiting Align function");
   }
-  moveRobot(0, 0, 0);
+  moveRobot(setV(0,0,0));
   delay(1000);
 }
 
@@ -159,11 +153,9 @@ bool checkShortLong() {
 }
 
 //======================================================================================
-void forwardMovement(float distanceToWall) { //the forward/backwards motion after it has done a strafe movement
+ void forwardMovement(float distanceToWall) { //the forward/backwards motion after it has done a strafe movement
   do {
-    Serial.println("GOING STRAIGHT YOU FUCK");
-    moveRobot(0, 0.44, 0);
-    uSensor = GetSonarDist();
+    moveRobot(setV(0, 0.44, 0));
     /*
       if ((getIRDistance(irLeftS) < 17) || (getIRDistance(irLeftL) < 17)) {
       moveRobot(0.2, 0.2, 0);//Move robot forwards + right
@@ -172,22 +164,21 @@ void forwardMovement(float distanceToWall) { //the forward/backwards motion afte
       if ((getIRDistance(irLeftS) > 17) || (getIRDistance(irLeftL) > 17)) {
       moveRobot(-0.2, 0.2, 0);//Move robot forwards + left
       delay(50);
-      }
+       }
       if ((getIRDistance(irRightS) < 17) || (getIRDistance(irRightL) < 17)) {
       moveRobot(-0.2, 0.2, 0);//Move robot forwards + left
       delay(50);
-      }
+       }
       if ((getIRDistance(irRightS) > 17) || (getIRDistance(irRightL) > 17)) {
       moveRobot(0.2, 0.2, 0);//Move robot forwards + right
       delay(50);
       }
     */
-  } while (uSensor < distanceToWall);
-
-  moveRobot(0, 0, 0);
+  } while (GetSonarDist() < distanceToWall);
+  moveRobot(setV(0, 0, 0));
   delay(1000);
 }
-//======================================================================================
+
 //void rightUturn (float DistanceToWall) {
 //  Serial.println("Right turn baby");
 //  // Right U-turn
