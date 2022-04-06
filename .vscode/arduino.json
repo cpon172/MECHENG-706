@@ -1,0 +1,7 @@
+{
+    "port": "COM6",
+    "configuration": "cpu=atmega2560",
+    "board": "arduino:avr:mega",
+    "programmer": "arduino:avrispmkii",
+    "sketch": "P1Code\\P1Code.ino"
+}
