@@ -91,13 +91,15 @@ int isrCount = 0; //counter for ISR
 int isRunning = 1; //Variable used for running the program
 int i = 0; //index for how many paths have been done
 
-//Turning definitions (For Jason and Aniqah)
+//Turning definitions
 #define cw 1
 #define ccw 0
 #define rightTurn 1
 #define leftTurn 0
 #define rightWall 1
 #define leftWall 0
+
+float intervalDelay = 500; //Pause time between each movement command
 
 //======================================================================================
 //ULTRASONIC VARIABLES
@@ -261,7 +263,8 @@ STATE running() {
   //ENTER CODE HERE!======================================================================================================================
 
   initMoveToWall(20);
-  rotateRobot(90, 0);
+  rotateRobot(90, ccw);
+  forwardMovement(20);
 
   //*****************************************************************************
   /* Carl and Suvarna's requirements for the EKF
