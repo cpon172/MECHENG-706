@@ -12,7 +12,7 @@ void prediction(velocities v) {
   prevState(2) = currentState(2);
 
   //updating X
-  currentState(0) = prevState(0) + (v.x * cos(currentState(2) * PI / 180) + v.y * sin(currentState(2) * PI / 180)) * 0.5;
+  currentState(0) = prevState(0) - (v.x * cos(currentState(2) * PI / 180) + v.y * sin(currentState(2) * PI / 180)) * 0.5;
   prevState(0) = currentState(0); //making prevX into updated X for next call
 
   //updating Y
