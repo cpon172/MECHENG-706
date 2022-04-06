@@ -264,16 +264,16 @@ STATE running() {
   rotateRobot(90, 0);
 
   //*****************************************************************************
-  // Carl and Suvarna's requirements for the EKF
-  //The EKF requires the current velocities that are being imposed upon the robot to update its coordinates on the table.
-  //This is done by modifying the velocities array (line 127), using the setV function. For convenience, the velocities
-  //Array is also set as an input to movement command functions. See example below.
-
-  // setV(0,0.2,0); //Set the velocities of the robot, moving forward in the y direction only with 0.2 m/s
-  // initMoveToWall(velocities, 20); //use the initMoveToWall function, given the velocities array, and the 20cm threshold
-  //For the robot to stop.
-  // setV(0,0,1);
-
+  /* Carl and Suvarna's requirements for the EKF
+  The EKF requires the current velocities that are being imposed upon the robot to update its coordinates on the table.
+  This is done by modifying the velocities struct type 'v' (line 75), using the setV function. The setV function is ONLY
+  used inside the moveRobot() function as a paramter. 
+  
+  e.g. to make the robot move forward 0.2ms-1 with moveRobot:
+    moveRobot(setV(0, 0.2, 0));
+  */
+  
+ 
   //*****************************************************************************
 
   //Jason and Aniqah's approach for robot path following
