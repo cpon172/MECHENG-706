@@ -143,10 +143,6 @@ Matrix<11> currentState; //x, y, theta, land1x, land1y, land2x, land2y, land3x, 
 Matrix<11> prevState;
 
 Matrix<11, 11>covarianceMatrix;
-//Matrix<3, 3> robotCov;
-//Matrix<8, 8> landmarkCov; //landmark covariance
-//Matrix<8, 3> blCov; //bottom left covariance
-//Matrix<3, 8> trCov; //top right covariance
 RefMatrix<3, 3, Array<11, 11>> robotCov(covarianceMatrix.Submatrix<3, 3>(0, 0)); //Robot Cov matrix
 RefMatrix<8, 8, Array<11, 11>> landmarkCov(covarianceMatrix.Submatrix<8, 8>(3, 3)); //Landmark Cov matrix
 RefMatrix<8, 3, Array<11, 11>> blCov(covarianceMatrix.Submatrix<8, 3>(3, 0)); //Bottom Left Cov matrix
@@ -262,8 +258,8 @@ STATE running() {
 
   //ENTER CODE HERE!======================================================================================================================
 
-  initMoveToWall(20);
-  rotateRobot(90, ccw);
+  forwardMovement(20);
+  rotateRobot(90, cw);
   forwardMovement(20);
 
   //*****************************************************************************
@@ -272,14 +268,14 @@ STATE running() {
   This is done by modifying the velocities struct type 'v' (line 75), using the setV function. The setV function is ONLY
   used inside the moveRobot() function as a paramter. 
   
-  e.g. to make the robot move forward 0.2ms-1 with moveRobot:
+  e.g. to make the robot move forward 0.2ms^-1 with moveRobot:
     moveRobot(setV(0, 0.2, 0));
   */
   
  
   //*****************************************************************************
 
-  //Jason and Aniqah's approach for robot path following
+  //Jason and Aniqah's path following stuff
   //  float maximumDistanceToWall = 20;
   //CHECKING STUFF
   //alignWall(leftWall,10);
