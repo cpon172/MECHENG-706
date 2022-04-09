@@ -34,7 +34,7 @@ void rotateRobot(float angle, bool angleDirection) {//update function to use bot
   float presentAngle = 0; //Reset current angle
   resetGyro();
   if (angleDirection == 0) {         //Rotating CCW
-    Serial.println("Rotate Clockwise");
+    Serial.println("Rotate Counter clockwise");
     do {
       moveRobot(setV(0, 0, 1));
       //get current angle and print
@@ -43,11 +43,11 @@ void rotateRobot(float angle, bool angleDirection) {//update function to use bot
       Serial.println(presentAngle);
       Serial.print("This is the Angle we want to reach: ");
       Serial.println(angle);
-    } while ( (presentAngle < (angle * 0.93)) || (presentAngle == 0) );
+    } while ( (presentAngle < (angle * 0.93)) || (presentAngle >= 355) );
   }
 
   else if (angleDirection == 1) {   //Rotating CW
-    Serial.println("Rotate counterclockwise");
+    Serial.println("Rotate Clockwise");
     do {
       moveRobot(setV(0, 0, -1));
       //get current angle and print
@@ -56,7 +56,7 @@ void rotateRobot(float angle, bool angleDirection) {//update function to use bot
       Serial.println(presentAngle);
       Serial.print("This is the Angle we want to reach: ");
       Serial.println(angle);
-    } while (((presentAngle) > ((360 - angle) * 1.07)) || (presentAngle == 0));
+    } while (((presentAngle) > ((360 - angle) * 1.07)) || (presentAngle <= 5));
   }
   moveRobot(setV(0, 0, 0));
   delay(intervalDelay);
