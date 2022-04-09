@@ -125,7 +125,7 @@ float getCurrentAngle()
 
     //***********************************************************************************************
     currentAngle -= angleChange; //MINUS THE ANGLE, BECAUSE TURNING 90 DEGREES IS ANTICLOCKWISE IN CARTESIAN COORDINATES!
-    gyroAngle = (1.0464 * currentAngle) + 0.0664;
+    gyroAngle = (currentAngle+8.5576) / 0.9917;
   }
   // keep the angle between 0-360
   if (gyroAngle < 0)
