@@ -316,7 +316,7 @@ STATE running() {
     alignWall(rightWall, 10);
     yMovement(maximumDistanceToWall, KP_ULTRASONIC);
     initialMovement = leftTurn;
-//    SLAM = 1;
+    SLAM = 1;
     }
     Serial.println("Entered Zig Zag movemnt");
     for (float DistanceToWall = 100; DistanceToWall >= 10; DistanceToWall - 10) {
