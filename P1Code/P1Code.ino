@@ -5,6 +5,7 @@
 #include <avr/io.h>
 #include <avr/interrupt.h>
 #include "BasicLinearAlgebra.h"
+#include "RunningMedian.h"
 using namespace BLA;
 
 //#define NO_READ_GYRO  //Uncomment of GYRO is not attached.
@@ -28,10 +29,10 @@ const int TRIG_PIN = 48;
 const int ECHO_PIN = 49;
 
 //IR Sensor Pins
-int irLeftL = A13;
-int irRightL = A14;
-int irLeftS = A12;
-int irRightS = A15;
+int irLeftL = 13;
+int irRightL = 14;
+int irLeftS = 12;
+int irRightS = 15;
 
 //IR SENSOR VALUES
 float irLeftLVal = 0;
@@ -90,6 +91,7 @@ int wallNumber; //for EKF and data association
 int isrCount = 0; //counter for ISR
 int isRunning = 1; //Variable used for running the program
 int i = 0; //index for how many paths have been done
+int SLAM = 0; //flag for enabling slam
 
 //Turning definitions
 #define cw 1
@@ -106,6 +108,9 @@ float intervalDelay = 500; //Pause time between each movement command
 
 // Anything over 400 cm (23200 us pulse) is "out of range". Hit:If you decrease to this the ranging sensor but the timeout is short, you may not need to read up to 4meters.
 const unsigned int MAX_DIST = 23200;
+
+//Takes 7 sample readings then finds the median.
+RunningMedian samples = RunningMedian(10);
 
 //======================================================================================
 //GYROSCOPE VARIABLES
@@ -131,7 +136,7 @@ int T = 50;// gyroscope delay time (For Jason and Aniqah)
 float Mut_prevlist[5] = {0, 0, 0, 0, 0}; //Initial/mean value of the 5 sensors
 float Sigmat_prevlist[5] = {999, 999, 999, 999, 999}; //Initial Covariance of the 5 sensors
 float RList[5] = {1, 1, 1, 1, 1};
-float QList[5] = {500, 500, 500, 500, 500}; // Change the value of sensor noise to get different KF performance
+float QList[5] = {100, 100, 100, 100, 100}; // Change the value of sensor noise to get different KF performance
 
 //velocities x,y,z in that order. These velocities are used as inputs for motor commands but more importantly, as inputs for the extended kalman filter
 //(For Carl and Suvarna)
@@ -149,6 +154,9 @@ RefMatrix<8, 3, Array<11, 11>> blCov(covarianceMatrix.Submatrix<8, 3>(3, 0)); //
 RefMatrix<3, 8, Array<11, 11>> trCov(covarianceMatrix.Submatrix<3, 8>(0, 3)); //Top Right Cov matrix
 
 //RefMatrix<4, 4, Array<11, 11>> apples(covarianceMatrix.Submatrix<4, 4>(4, 2));
+
+//======================================================================================
+#define KP_ULTRASONIC 0.01
 
 //======================================================================================
 void setup(void)
@@ -258,9 +266,12 @@ STATE running() {
 
   //ENTER CODE HERE!======================================================================================================================
 
-  forwardMovement(20);
-  rotateRobot(90, cw);
-  forwardMovement(20);
+  //CHECKING CODE HERE+++++++++++++++++++++++++++++++++
+  //float Distance =GetSonarDist();
+  //yMovement(50,KP_ULTRASONIC);
+  //rotateRobot(90,ccw);
+  //strafeRight();
+  //xMovement(8, leftWall, 0.01, 30, 0.01, 0.01);  //SEMI GOOD UNTIL THE END STARTS TO TURN
 
   //*****************************************************************************
   /* Carl and Suvarna's requirements for the EKF
@@ -276,19 +287,17 @@ STATE running() {
   //*****************************************************************************
 
   //Jason and Aniqah's path following stuff
-  //  float maximumDistanceToWall = 20;
-  //CHECKING STUFF
-  //alignWall(leftWall,10);
-  //    bool check = checkShortLong();
-  /*
+    float maximumDistanceToWall = 4;
+  
+  
     //intial movement code
     Serial.println("Intial movement to wall");
-    initMoveToWall(maximumDistanceToWall); //Turn
+    yMovement(maximumDistanceToWall, KP_ULTRASONIC); //Turn
     Serial.println("Rotate 90 degrees");
-    //rotateRobot(90, ccw); //Turn "90 degrees" clockwise given 1 rad/s
+    //Turn "90 degrees" clockwise given 1 rad/s
     rotateRobot(90,cw);
     Serial.println("Move towards corner");
-    alignWall(leftWall);
+    alignWall(leftWall,10);
     moveToCorner(maximumDistanceToWall);
 
 
@@ -299,32 +308,33 @@ STATE running() {
     if (checkShortLong()==true) { //If robot needs to turn initially (ie on left side of table)
     Serial.println("Right side of table");
     rotateRobot(90, ccw);
-    alignWall(leftWall);
-    forwardMovement(maximumDistanceToWall);
+    alignWall(leftWall,10);
+    yMovement(maximumDistanceToWall, KP_ULTRASONIC);
     initialMovement = rightTurn;
     } else { //If robot does not need to turn intially (ie on rigjht side of table)
     Serial.println("Left side of table");
-    alignWall(rightWall);
-    forwardMovement(maximumDistanceToWall);
+    alignWall(rightWall, 10);
+    yMovement(maximumDistanceToWall, KP_ULTRASONIC);
     initialMovement = leftTurn;
+//    SLAM = 1;
     }
     Serial.println("Entered Zig Zag movemnt");
     for (float DistanceToWall = 100; DistanceToWall >= 10; DistanceToWall - 10) {
     while (DistanceToWall > 10) {
       if (initialMovement == rightTurn) {
         rightUturn(DistanceToWall);
-        forwardMovement(maximumDistanceToWall);
+        yMovement(maximumDistanceToWall, KP_ULTRASONIC);
         initialMovement = leftTurn;//Always alternates between left and right Turns
       } else {
         leftUturn(DistanceToWall);
-        forwardMovement(maximumDistanceToWall);
+        yMovement(maximumDistanceToWall, KP_ULTRASONIC);
         initialMovement = rightTurn;
       }
     }
-    }*/
+    }
   moveRobot(setV(0, 0, 0));
   delay(1000000000);
-  return STOPPED;
+  //return STOPPED;
 }
 
 //======================================================================================

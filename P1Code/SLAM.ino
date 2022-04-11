@@ -7,19 +7,17 @@ void prediction(velocities v) {
   //  Rt.Fill(1); //Uncertainty of odometry (tbh not sure what value should this matrix be filled up with).
   float Rt = 1;
 
-  currentState(2) = getCurrentAngle();//prevState(2) + v[2] * 0.5 * 180 / PI; //updating Z //rad + rads-1 *s = rad -> degrees
+  currentState(2) = getCurrentAngle(); //prevState(2) + v.z * 0.5 * 180 / PI; //updating Z //rad + rads-1 *s = rad -> degrees //getCurrentAngle();
 
   prevState(2) = currentState(2);
 
   //updating X
-  currentState(0) = prevState(0) - (v.x * cos(currentState(2) * PI / 180) + v.y * sin(currentState(2) * PI / 180)) * 0.5;
+  currentState(0) = prevState(0) - (v.x * cos(currentState(2) * PI / 180) + v.y * sin(currentState(2) * PI / 180)) * 0.5/0.1;
   prevState(0) = currentState(0); //making prevX into updated X for next call
 
   //updating Y
-  currentState(1) = prevState(1) + (v.y * cos(currentState(2) * PI / 180) - v.x * sin(currentState(2) * PI / 180)) * 0.5;
+  currentState(1) = prevState(1) + (v.y * cos(currentState(2) * PI / 180) - v.x * sin(currentState(2) * PI / 180)) * 0.5/0.1;
   prevState(1) = currentState(1);
-
-  serialOutput(currentState(0), currentState(1), currentState(2));
 
   //define jacobian Gxt
   Matrix<3, 3> Gxt;
@@ -28,14 +26,15 @@ void prediction(velocities v) {
     Gxt(i, i) =  1;
   }
   Gxt(2, 0) = 0.5 * (v.y * cos(currentState(2) * PI / 180) - v.x * sin(currentState(2) * PI / 180)); //dx
-    Gxt(1, 2) = -0.5 * (v.x * cos(currentState(2) * PI / 180) + v.y * sin(currentState(2) * PI / 180)); //dy
+  Gxt(1, 2) = -0.5 * (v.x * cos(currentState(2) * PI / 180) + v.y * sin(currentState(2) * PI / 180)); //dy
   //    Serial << "Prediction Jacobian: " << Gxt << '\n';
 
   //Update the covariance matrixes except the landmark matrix
   robotCov = (Gxt * robotCov * ~Gxt) + Rt;
   trCov = Gxt * trCov + Rt;
   blCov = ~trCov + Rt;
-  serialOutput(currentState(0), currentState(1), currentState(2)); //Print the current states (currentState(2)) is not necessary to print
+  serialOutput(floor(currentState(0)), floor(currentState(1)), floor(currentState(0))); //Print the current states (currentState(2)) is not necessary to print
+  //serialOutput(currentState(0), currentState(1), currentState(0));
 }
 
 //======================================================================================
@@ -78,12 +77,14 @@ void correction(int wallNumber) {
 
 //ISR to update coordinates
 ISR(TIMER2_COMPA_vect) {
-  if (isrCount == 31) { //When 31 ISRs occur, ~0.5 seconds have passed by
-    prediction(v);
-    //correction(wallNumber);
-    isrCount = 0; //Reset count
-  }
-  isrCount++; //update count
+//  if (SLAM == 1) {
+    if (isrCount == 31) { //When 31 ISRs occur, ~0.5 seconds have passed by
+      prediction(v);
+      //correction(wallNumber);
+      isrCount = 0; //Reset count
+    }
+    isrCount++; //update count
+//  }
 }
 
 //======================================================================================

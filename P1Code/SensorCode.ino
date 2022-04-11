@@ -6,49 +6,71 @@
 //======================================================================================
 float GetSonarDist() //HC_SR04_range
 {
-  unsigned long t1;
-  unsigned long t2;
-  unsigned long pulse_width;
-  float cm;
-  float inches;
+ 
+  unsigned long t1=0;
+  unsigned long t2=0;
+  unsigned long pulse_width=0;
+  float cm=0;
+  float median_cm =0;
+  int count=0;
 
   // Hold the trigger pin high for at least 10 us
-  digitalWrite(TRIG_PIN, HIGH);
-  delayMicroseconds(10);
-  digitalWrite(TRIG_PIN, LOW);
-
-  // Wait for pulse on echo pin
-  t1 = micros();
-  while ( digitalRead(ECHO_PIN) == 0 ) {
+  do{
+    digitalWrite(TRIG_PIN, HIGH);
+    delayMicroseconds(10);
+    digitalWrite(TRIG_PIN, LOW);
+  
+    // Wait for pulse on echo pin
+    t1 = micros();
+    while ( digitalRead(ECHO_PIN) == 0 ) {
+      t2 = micros();
+      pulse_width = t2 - t1;
+      if (pulse_width > (MAX_DIST + 1000)) {
+        SerialCom->println("Ultrasonic Distance NOT found");      
+      }
+    }
+  
+    // Measure how long the echo pin was held high (pulse width)
+    // Note: the micros() counter will overflow after ~70 min
+  
+    t1 = micros();
+    while ( digitalRead(ECHO_PIN) == 1)
+    {
+      t2 = micros();
+      pulse_width = t2 - t1;
+      if ( pulse_width > (MAX_DIST + 1000) ) {
+        SerialCom->println("Ultrasonic Distance Out of range");
+      }
+    }
+  
     t2 = micros();
     pulse_width = t2 - t1;
-    if (pulse_width > (MAX_DIST + 1000)) {
-      SerialCom->println("Ultrasonic Distance NOT found");
+  
+    // Calculate distance in centimeters. The constants
+    // are found in the datasheet, and calculated from the assumed speed
+    //of sound in air at sea level (~340 m/s).
+    cm = pulse_width / 58.0;
+  
+    //Print and Return Results
+    if ( pulse_width > MAX_DIST ) {
+      SerialCom->println("Out of range");
+    } else {
+      Serial.print("Distance Seen:");
+      SerialCom->println(cm);
+      samples.add(cm);
+      count++;
+      Serial.print("Count:");
+      Serial.println(count);
     }
-  }
-
-  // Measure how long the echo pin was held high (pulse width)
-  // Note: the micros() counter will overflow after ~70 min
-
-  t1 = micros();
-  while ( digitalRead(ECHO_PIN) == 1)
-  {
-    t2 = micros();
-    pulse_width = t2 - t1;
-    if ( pulse_width > (MAX_DIST + 1000) ) {
-      SerialCom->println("Ultrasonic Distance Out of range");
-    }
-  }
-
-  t2 = micros();
-  pulse_width = t2 - t1;
-
-  // Calculate distance in centimeters. The constants
-  // are found in the datasheet, and calculated from the assumed speed
-  //of sound in air at sea level (~340 m/s).
-  cm = pulse_width / 58.0;
-
-  return cm;
+    //NEED TO PUT THIS DELAY BECAUSE IT WILL VARY THE READINGS SO IT'S NOT CONSISTENTLY WRONG
+    delay(50); 
+  } while (count<10);
+  //Average 10 samples
+  median_cm = samples.getMedian();
+  Serial.print("Median Distance:");
+  Serial.println(median_cm);
+  return (median_cm);
+  
 }
 //#endif
 
@@ -62,7 +84,26 @@ float getIRDistance (int IRPin) {
   for (int i = 0; i < 5; i++) {
     IRArray[i] = analogRead(IRPin);
   }
-  //
+  //IF IR VALUE IS OUT OF RANGE, GIVES LARGE VARIATION. THUS GET MAX AND MIN VALUES.
+  //GET DIFFERENCE, IF TOO LARGE RETURN NULL TO IGNORE.
+  float maxVal = IRArray[0];
+  float minVal = IRArray[0];
+  for (int j=1; j < 5; j++) {
+    if (IRArray[j]>maxVal){
+      maxVal = IRArray[i];
+    }
+    if (IRArray[j]<minVal){
+      minVal = IRArray[j];
+    }
+  }
+
+  float difference = maxVal - minVal;
+  if (difference>25){
+    return 0;
+  }
+  
+  
+  //Averaging IR value
   IRValue = (IRArray[0] + IRArray[1] + IRArray[2] + IRArray[3] + IRArray[4]) / 5;
   //IRValue = analogRead(IRPin);
 
@@ -125,7 +166,7 @@ float getCurrentAngle()
 
     //***********************************************************************************************
     currentAngle -= angleChange; //MINUS THE ANGLE, BECAUSE TURNING 90 DEGREES IS ANTICLOCKWISE IN CARTESIAN COORDINATES!
-    gyroAngle = (currentAngle+8.5576) / 0.9917;
+    gyroAngle = (currentAngle + 8.5576)/0.9917;
   }
   // keep the angle between 0-360
   if (gyroAngle < 0)
@@ -137,7 +178,9 @@ float getCurrentAngle()
     gyroAngle -= 360;
   }
   delay(100);
+  Serial.println(gyroAngle);
   return gyroAngle;
+  
 }
 
 //======================================================================================
