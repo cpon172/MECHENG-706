@@ -77,14 +77,14 @@ void correction(int wallNumber) {
 
 //ISR to update coordinates
 ISR(TIMER2_COMPA_vect) {
-//  if (SLAM == 1) {
+ if (SLAM == 1) {
     if (isrCount == 31) { //When 31 ISRs occur, ~0.5 seconds have passed by
       prediction(v);
       //correction(wallNumber);
       isrCount = 0; //Reset count
     }
     isrCount++; //update count
-//  }
+ }
 }
 
 //======================================================================================
